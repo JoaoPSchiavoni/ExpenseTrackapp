@@ -12,6 +12,7 @@ import 'package:spendlyapp/core/auth/token_store.dart';
 import 'package:spendlyapp/core/theme/theme_controller.dart';
 import 'package:spendlyapp/features/budgets/presentation/budgets_page.dart';
 import 'package:spendlyapp/features/resources/presentation/resources_page.dart';
+import 'package:spendlyapp/features/statistics/presentation/statistics_page.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -97,6 +98,83 @@ void main() {
     expect(find.text('Spendly'), findsOneWidget);
     expect(find.text('Nova transação'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
+  });
+
+  testWidgets('o gráfico anual explica e seleciona cada mês', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final store = MemoryTokenStore('token');
+    final client = MockClient((request) async {
+      dynamic body;
+      if (request.url.path.endsWith('/reports/monthly')) {
+        body = {
+          'month': '2026-10',
+          'currency': 'BRL',
+          'total_income': '0.00',
+          'total_expense': '4481.00',
+          'net_savings': '-4481.00',
+        };
+      } else if (request.url.path.endsWith('/reports/category-summary')) {
+        body = {'period': '2026-10', 'currency': 'BRL', 'items': []};
+      } else {
+        body = {
+          'currency': 'BRL',
+          'items': [
+            {
+              'month': '2026-09',
+              'income': '8500.00',
+              'expense': '4484.00',
+              'net': '4016.00',
+            },
+            {
+              'month': '2026-10',
+              'income': '0.00',
+              'expense': '4481.00',
+              'net': '-4481.00',
+            },
+          ],
+        };
+      }
+      return http.Response(
+        jsonEncode(body),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final api = ExpenseTrackerApi(
+      ApiClient(
+        baseUrl: 'https://example.test',
+        accessToken: store.read,
+        httpClient: client,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatisticsPage(
+          api: api,
+          themeController: ThemeController.forTest(isDark: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Receitas x despesas'), findsOneWidget);
+    expect(
+      find.text('Últimos 12 meses · toque em um mês para ver os valores'),
+      findsOneWidget,
+    );
+    expect(find.text('Outubro de 2026'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('annual-flow-selected-summary')),
+      findsOneWidget,
+    );
+
+    final september = find.byKey(const ValueKey('annual-flow-month-2026-09'));
+    await tester.ensureVisible(september);
+    await tester.tap(september);
+    await tester.pumpAndSettle();
+    expect(find.text('Setembro de 2026'), findsOneWidget);
   });
 
   testWidgets('exibe o novo login e alterna para criação de conta', (
